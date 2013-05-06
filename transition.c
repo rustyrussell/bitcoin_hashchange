@@ -29,7 +29,8 @@ int main(int argc, char *argv[])
 	struct timespec ts = time_now();
 	unsigned int old_target = 8000000, new_target = 0xFFFFFFFF;
 	unsigned long seed;
-	unsigned int i, rounds = 2016, time, *timestamp;
+	unsigned int i, rounds = 2016, time;
+	int32_t *timestamp;
 	bool noise = false, verbose = false;
 
 	seed = (ts.tv_sec << 10) + ts.tv_nsec;
@@ -87,10 +88,8 @@ int main(int argc, char *argv[])
 			time += duration;
 		}
 
-		if (i != 0) {
-			int32_t diff = timestamp[i] - timestamp[i-1];
-			printf("%i\n", diff);
-		}
+		if (i != 0)
+			printf("%i\n", timestamp[i] - timestamp[i-1]);
 	}
 	return 0;
 }
