@@ -69,17 +69,17 @@ int main(int argc, char *argv[])
 		if (verbose)
 			printf("  Old hash finished in %u\n", duration);
 
+		time += duration;
+		timestamp[i] = time;
+
 		if (noise) {
 			int32_t n = add_noise(&isaac);
 			if (verbose)
 				printf("  Adding noise %+i\n", n);
-			duration += n;
+			timestamp[i] += n;
 		}
 
-		time += duration;
-		timestamp[i] = time;
 		hardblock[i] = ((res & 0xF) != 0);
-
 		if (hardblock[i]) {
 			/* Hard block.  Solve new hash */
 			duration = 0;
