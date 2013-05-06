@@ -31,7 +31,7 @@ int main(int argc, char *argv[])
 	unsigned long seed;
 	unsigned int i, rounds = 2016, time;
 	int32_t *timestamp;
-	bool noise = false, verbose = false;
+	bool noise = false, verbose = false, *hardblock;
 
 	seed = (ts.tv_sec << 10) + ts.tv_nsec;
 
@@ -54,6 +54,7 @@ int main(int argc, char *argv[])
 
 	isaac_init(&isaac, (unsigned char *)&ts, sizeof(ts));
 	timestamp = malloc(sizeof(*timestamp) * rounds);
+	hardblock = malloc(sizeof(*hardblock) * rounds);
 
 	if (verbose)
 		printf("  Seed is %lu, %u rounds\n", seed, rounds);
@@ -77,8 +78,9 @@ int main(int argc, char *argv[])
 
 		time += duration;
 		timestamp[i] = time;
+		hardblock[i] = ((res & 0xF) != 0);
 
-		if ((res & 0xF) != 0) {
+		if (hardblock[i]) {
 			/* Hard block.  Solve new hash */
 			duration = 0;
 			while (isaac_next_uint32(&isaac) > new_target)
@@ -90,6 +92,25 @@ int main(int argc, char *argv[])
 
 		if (i != 0)
 			printf("%i\n", timestamp[i] - timestamp[i-1]);
+	}
+
+	if (verbose) {
+		int64_t hard_tot = 0, easy_tot = 0;
+		unsigned num_hard = 0, num_easy = 0;
+
+		for (i = 0; i+1 < rounds; i++) {
+			if (hardblock[i]) {
+				hard_tot += timestamp[i+1] - timestamp[i];
+				num_hard++;
+			} else {
+				easy_tot += timestamp[i+1] - timestamp[i];
+				num_easy++;
+			}
+		}
+		printf("%u easy, average duration %lli\n", num_easy,
+		       easy_tot / num_easy);
+		printf("%u hard, average duration %lli\n", num_hard,
+		       hard_tot / num_hard);
 	}
 	return 0;
 }
