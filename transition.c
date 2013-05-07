@@ -1,4 +1,5 @@
 /* Simulate the effect of miners during transition. */
+#include <ccan/asort/asort.h>
 #include <ccan/isaac/isaac.h>
 #include <ccan/time/time.h>
 #include <ccan/str/str.h>
@@ -65,7 +66,7 @@ static int32_t min_timestamp(const int32_t *timestamp, int round)
 /* Other nodes won't accept time more than 2 hours in future. */
 static int32_t max_timestamp(uint32_t time)
 {
-	return time + 2 * 60 * 60;
+	return time + 600;
 }
 
 static int32_t doctor_timestamp(const int32_t *timestamp, int round,
@@ -90,6 +91,15 @@ static int32_t doctor_timestamp(const int32_t *timestamp, int round,
 		else
 			return min_timestamp(timestamp, round);
 	}
+}
+
+static int cmp_val(const int64_t *a, const int64_t *b, void *unused)
+{
+	if (*a > *b)
+		return 1;
+	if (*a < *b)
+		return -1;
+	return 0;
 }
 
 int main(int argc, char *argv[])
@@ -179,20 +189,27 @@ int main(int argc, char *argv[])
 	if (verbose) {
 		int64_t hard_tot = 0, easy_tot = 0;
 		unsigned num_hard = 0, num_easy = 0;
+		int64_t hard_diffs[rounds], easy_diffs[rounds];
 
+		/* Get median and average for timestamp diffs. */
 		for (i = 0; i+1 < rounds; i++) {
+			int64_t diff = timestamp[i+1] - timestamp[i];
+
 			if (hardblock[i]) {
-				hard_tot += timestamp[i+1] - timestamp[i];
-				num_hard++;
+				hard_tot += diff;
+				hard_diffs[num_hard++] = diff;
 			} else {
-				easy_tot += timestamp[i+1] - timestamp[i];
-				num_easy++;
+				easy_tot += diff;
+				easy_diffs[num_easy++] = diff;
 			}
 		}
-		printf("%u easy, average duration %lli\n", num_easy,
-		       easy_tot / num_easy);
-		printf("%u hard, average duration %lli\n", num_hard,
-		       hard_tot / num_hard);
+		asort(hard_diffs, num_hard, cmp_val, NULL);
+		asort(easy_diffs, num_easy, cmp_val, NULL);
+		
+		printf("%u easy, average duration %lli, median %lli\n",
+		       num_easy, easy_tot / num_easy, easy_diffs[num_easy/2]);
+		printf("%u hard, average duration %lli, median %lli\n",
+		       num_hard, hard_tot / num_hard, hard_diffs[num_hard/2]);
 	}
 	return 0;
 }
