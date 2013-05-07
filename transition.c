@@ -98,7 +98,7 @@ int main(int argc, char *argv[])
 	struct timespec ts = time_now();
 	unsigned int old_target = 8000000, new_target = 0xFFFFFFFF;
 	unsigned long seed;
-	unsigned int i, rounds = 2016, time;
+	unsigned int i, rounds = 2016, time, bias_percent = 50;
 	int32_t *timestamp;
 	bool noise = false, verbose = false, *hardblock;
 	enum bias bias = NONE;
@@ -115,6 +115,8 @@ int main(int argc, char *argv[])
 			 &noise, "Add noise to timestamps");
 	opt_register_arg("--bias", opt_set_bias, NULL, &bias,
 			   "Doctor timestamps to promote 'old' or 'new' hash");
+	opt_register_arg("--bias-percent", opt_set_uintval, opt_show_uintval,
+			 &bias_percent, "Percentage of blocks being biassed");
 	opt_register_noarg("-v|--verbose", opt_set_bool,
 			 &verbose, "Verbose output");
 	opt_register_noarg("-h|--help", opt_usage_and_exit, "",
@@ -147,7 +149,8 @@ int main(int argc, char *argv[])
 
 		time += duration;
 
-		if (bias != NONE) {
+		if (bias != NONE
+		    && isaac_next_uint(&isaac, 100) < bias_percent) {
 			timestamp[i] = doctor_timestamp(timestamp, i,
 							hardblock, time, bias);
 		} else if (noise) {
