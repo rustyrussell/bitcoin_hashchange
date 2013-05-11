@@ -6,6 +6,10 @@
 #include <ccan/opt/opt.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
+
+#define ROUNDS 2016
+#define CHUNK_SIZE 63
 
 /* This gives approximately normal distribution noise. */
 static int32_t add_noise(struct isaac_ctx *isaac)
@@ -70,23 +74,19 @@ static int32_t max_timestamp(uint32_t time)
 }
 
 static int32_t doctor_timestamp(const int32_t *timestamp, int round,
-				bool *hardblock, int32_t time, enum bias bias)
+				bool hardblock, int32_t time, enum bias bias)
 {
-	/* Don't doctor in round 0. */
-	if (round == 0)
-		return time;
-
 	if (bias == NEW_HASH) {
 		/* Make hard blocks as fast as possible, easy blocks
 		 * as slow as possible. */
-		if (hardblock[round-1])
+		if (hardblock)
 			return min_timestamp(timestamp, round);
 		else
 			return max_timestamp(time);
 	} else {
 		/* Make hard blocks as slow as possible, easy blocks
 		 * as fast as possible. */
-		if (hardblock[round-1])
+		if (hardblock)
 			return max_timestamp(time);
 		else
 			return min_timestamp(timestamp, round);
@@ -108,7 +108,7 @@ int main(int argc, char *argv[])
 	struct timespec ts = time_now();
 	unsigned int old_target = 8000000, new_target = 0xFFFFFFFF;
 	unsigned long seed;
-	unsigned int i, rounds = 2016, time, bias_percent = 50;
+	unsigned int i, rounds = ROUNDS, time, bias_percent = 50, chunks;
 	int32_t *timestamp;
 	bool noise = false, verbose = false, *hardblock;
 	enum bias bias = NONE;
@@ -139,6 +139,7 @@ int main(int argc, char *argv[])
 	isaac_init(&isaac, (unsigned char *)&ts, sizeof(ts));
 	timestamp = malloc(sizeof(*timestamp) * rounds);
 	hardblock = malloc(sizeof(*hardblock) * rounds);
+	chunks = rounds / CHUNK_SIZE;
 
 	if (verbose)
 		printf("  Seed is %lu, %u rounds\n", seed, rounds);
@@ -154,15 +155,16 @@ int main(int argc, char *argv[])
 		if (verbose)
 			printf("  Old hash finished in %u\n", duration);
 
-		/* Bottom 4 bits indicate if this is a hard block. */
-		hardblock[i] = ((res & 0xF) != 0);
+		/* 63 hard blocks, 63 easy blocks, etc. */
+		hardblock[i] = (i / CHUNK_SIZE % 2);
 
 		time += duration;
 
 		if (bias != NONE
 		    && isaac_next_uint(&isaac, 100) < bias_percent) {
 			timestamp[i] = doctor_timestamp(timestamp, i,
-							hardblock, time, bias);
+							hardblock[i],
+							time, bias);
 		} else if (noise) {
 			int32_t n = add_noise(&isaac);
 			if (verbose)
@@ -188,28 +190,49 @@ int main(int argc, char *argv[])
 
 	if (verbose) {
 		int64_t hard_tot = 0, easy_tot = 0;
-		unsigned num_hard = 0, num_easy = 0;
-		int64_t hard_diffs[rounds], easy_diffs[rounds];
+		unsigned num_hard = chunks/2, num_easy = chunks/2;
+		int64_t hard_diffs[num_hard], easy_diffs[num_easy];
+		unsigned hard_blocks = 0, easy_blocks = 0;
 
-		/* Get median and average for timestamp diffs. */
-		for (i = 0; i+1 < rounds; i++) {
-			int64_t diff = timestamp[i+1] - timestamp[i];
+		for (i = 0; i < chunks; i++) {
+			int start, end;
+			int64_t start_time;
 
-			if (hardblock[i]) {
-				hard_tot += diff;
-				hard_diffs[num_hard++] = diff;
+			start = i*CHUNK_SIZE - 1;
+			end = start + CHUNK_SIZE-1;
+
+			if (start < 0)
+				start_time = 0;
+			else
+				start_time = timestamp[start];
+					
+			if (i % 2) {
+				assert(start < 0 || !hardblock[start]);
+				assert(hardblock[end]);
+				hard_diffs[i/2] = timestamp[end] - start_time;
+				printf("Hard chunk %i: %llu\n",
+				       i/2, hard_diffs[i/2]);
+				hard_tot += hard_diffs[i/2];
+				hard_blocks += CHUNK_SIZE;
 			} else {
-				easy_tot += diff;
-				easy_diffs[num_easy++] = diff;
+				assert(start < 0 || hardblock[start]);
+				assert(!hardblock[end]);
+				easy_diffs[i/2] = timestamp[end] - start_time;
+				printf("Easy chunk %i: %llu\n",
+				       i/2, easy_diffs[i/2]);
+				easy_tot += easy_diffs[i/2];
+				easy_blocks += CHUNK_SIZE;
 			}
 		}
+
+		/* Sort to get median. */
 		asort(hard_diffs, num_hard, cmp_val, NULL);
 		asort(easy_diffs, num_easy, cmp_val, NULL);
 		
-		printf("%u easy, average duration %lli, median %lli\n",
-		       num_easy, easy_tot / num_easy, easy_diffs[num_easy/2]);
-		printf("%u hard, average duration %lli, median %lli\n",
-		       num_hard, hard_tot / num_hard, hard_diffs[num_hard/2]);
+		printf("%u easy chunks, average easy duration %lli, median %lli\n",
+		       num_easy, easy_tot / easy_blocks, easy_diffs[num_easy/2]);
+		printf("%u hard chunks, average hard duration %lli, median %lli\n",
+		       num_hard, hard_tot / hard_blocks, hard_diffs[num_hard/2]);
 	}
 	return 0;
 }
