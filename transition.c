@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
 	if (argc != 1)
 		opt_usage_and_exit(NULL);
 
-	isaac_init(&isaac, (unsigned char *)&ts, sizeof(ts));
+	isaac_init(&isaac, (unsigned char *)&seed, sizeof(seed));
 	timestamp = malloc(sizeof(*timestamp) * BLOCKS_PER_FORTNIGHT);
 
 	if (verbose)
