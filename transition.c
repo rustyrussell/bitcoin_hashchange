@@ -8,7 +8,8 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#define ROUNDS 2016
+#define BLOCKS_PER_FORTNIGHT 2016
+#define IDEAL_FORTNIGHT (14 * 24 * 60 * 60)
 #define CHUNK_SIZE 63
 
 /* This gives approximately normal distribution noise. */
@@ -29,89 +30,15 @@ static int32_t add_noise(struct isaac_ctx *isaac)
 	return ret;
 }
 
-enum bias {
-	NONE,
-	NEW_HASH,
-	OLD_HASH
-};
-
-static char *opt_set_bias(const char *arg, enum bias *bias)
-{
-	if (streq(arg, "new"))
-		*bias = NEW_HASH;
-	else if (streq(arg, "old"))
-		*bias = OLD_HASH;
-	else
-		return "Unknown value";
-	return NULL;
-}
-
-
-/* Other nodes won't accept time going backwards compared to last 11 */
-static int32_t min_timestamp(const int32_t *timestamp, int round)
-{
-	int64_t total = 0;
-	int i;
-
-	if (round == 0)
-		return 1;
-
-	/* Average last 11 timestamps. */
-	for (i = round - 1; i > round - 12; i--) {
-		if (i >= 0)
-			total += timestamp[i];
-		else
-			total += timestamp[0];
-	}
-
-	return total / 11 + 1;
-}
-
-/* Other nodes won't accept time more than 2 hours in future. */
-static int32_t max_timestamp(uint32_t time)
-{
-	return time + 600;
-}
-
-static int32_t doctor_timestamp(const int32_t *timestamp, int round,
-				bool hardblock, int32_t time, enum bias bias)
-{
-	if (bias == NEW_HASH) {
-		/* Make hard blocks as fast as possible, easy blocks
-		 * as slow as possible. */
-		if (hardblock)
-			return min_timestamp(timestamp, round);
-		else
-			return max_timestamp(time);
-	} else {
-		/* Make hard blocks as slow as possible, easy blocks
-		 * as fast as possible. */
-		if (hardblock)
-			return max_timestamp(time);
-		else
-			return min_timestamp(timestamp, round);
-	}
-}
-
-static int cmp_val(const int64_t *a, const int64_t *b, void *unused)
-{
-	if (*a > *b)
-		return 1;
-	if (*a < *b)
-		return -1;
-	return 0;
-}
-
 int main(int argc, char *argv[])
 {
 	struct isaac_ctx isaac;
 	struct timespec ts = time_now();
 	unsigned int old_target = 8000000, new_target = 0xFFFFFFFF;
 	unsigned long seed;
-	unsigned int i, rounds = ROUNDS, time, bias_percent = 50, chunks;
+	unsigned int i, r, fortnights = 26, time;
 	int32_t *timestamp;
-	bool noise = false, verbose = false, *hardblock;
-	enum bias bias = NONE;
+	bool noise = false, verbose = false;
 
 	seed = (ts.tv_sec << 10) + ts.tv_nsec;
 
@@ -123,10 +50,8 @@ int main(int argc, char *argv[])
 			 &new_target, "Target difficulty for new hash");
 	opt_register_noarg("--noise", opt_set_bool,
 			 &noise, "Add noise to timestamps");
-	opt_register_arg("--bias", opt_set_bias, NULL, &bias,
-			   "Doctor timestamps to promote 'old' or 'new' hash");
-	opt_register_arg("--bias-percent", opt_set_uintval, opt_show_uintval,
-			 &bias_percent, "Percentage of blocks being biassed");
+	opt_register_arg("--fortnights", opt_set_uintval, opt_show_uintval,
+			 &fortnights, "Number of fortnights to convert");
 	opt_register_noarg("-v|--verbose", opt_set_bool,
 			 &verbose, "Verbose output");
 	opt_register_noarg("-h|--help", opt_usage_and_exit, "",
@@ -137,102 +62,63 @@ int main(int argc, char *argv[])
 		opt_usage_and_exit(NULL);
 
 	isaac_init(&isaac, (unsigned char *)&ts, sizeof(ts));
-	timestamp = malloc(sizeof(*timestamp) * rounds);
-	hardblock = malloc(sizeof(*hardblock) * rounds);
-	chunks = rounds / CHUNK_SIZE;
+	timestamp = malloc(sizeof(*timestamp) * BLOCKS_PER_FORTNIGHT);
 
 	if (verbose)
-		printf("  Seed is %lu, %u rounds\n", seed, rounds);
+		printf("  Seed is %lu, %u fortnights\n", seed, fortnights);
 
-	for (i = 0; i < rounds; i++) {
-		uint32_t res;
-		int32_t duration = 0;
+	for (i = 0; i < fortnights + 1; i++) {
+		int64_t timediff;
+		uint32_t old_t, new_t;
 
-		/* Solve old hash */
-		while ((res = isaac_next_uint32(&isaac)) > old_target)
-			duration++;
+		/* New should represent i/fortnights work. */
+		if (i == 0)
+			new_t = -1UL;
+		else
+			new_t = new_target * fortnights / i;
 
-		if (verbose)
-			printf("  Old hash finished in %u\n", duration);
+		if (i == fortnights)
+			old_t = -1UL;
+		else
+			old_t = old_target * fortnights / (fortnights - i);
 
-		/* 63 hard blocks, 63 easy blocks, etc. */
-		hardblock[i] = (i / CHUNK_SIZE % 2);
+		for (r = 0; r < BLOCKS_PER_FORTNIGHT; r++) {
+			uint32_t res;
+			int32_t duration = 0;
 
-		time += duration;
+			/* Solve old hash */
+			while ((res = isaac_next_uint32(&isaac)) > old_t)
+				duration++;
 
-		if (bias != NONE
-		    && isaac_next_uint(&isaac, 100) < bias_percent) {
-			timestamp[i] = doctor_timestamp(timestamp, i,
-							hardblock[i],
-							time, bias);
-		} else if (noise) {
-			int32_t n = add_noise(&isaac);
 			if (verbose)
-				printf("  Adding noise %+i\n", n);
-			timestamp[i] = time + n;
-		} else {
-			timestamp[i] = time;
-		}
+				printf("  Old hash finished in %u\n", duration);
 
-		if (hardblock[i]) {
-			/* Hard block.  Solve new hash */
+			time += duration;
+			if (noise) {
+				int32_t n = add_noise(&isaac);
+				if (verbose)
+					printf("  Adding noise %+i\n", n);
+				timestamp[r] = time + n;
+			} else {
+				timestamp[r] = time;
+			}
+
+			/* Solve new hash */
 			duration = 0;
-			while (isaac_next_uint32(&isaac) > new_target)
+			while (isaac_next_uint32(&isaac) > new_t)
 				duration++;
 			if (verbose)
 				printf("  New hash finished in %u\n", duration);
 			time += duration;
 		}
+		timediff = timestamp[BLOCKS_PER_FORTNIGHT-1] - timestamp[0];
 
-		if (i != 0)
-			printf("%i\n", timestamp[i] - timestamp[i-1]);
-	}
+		printf("Fortnight %i: %llu seconds average.\n",
+		       i, timediff / r);
 
-	if (verbose) {
-		int64_t hard_tot = 0, easy_tot = 0;
-		unsigned num_hard = chunks/2, num_easy = chunks/2;
-		int64_t hard_diffs[num_hard], easy_diffs[num_easy];
-		unsigned hard_blocks = 0, easy_blocks = 0;
-
-		for (i = 0; i < chunks; i++) {
-			int start, end;
-			int64_t start_time;
-
-			start = i*CHUNK_SIZE - 1;
-			end = start + CHUNK_SIZE-1;
-
-			if (start < 0)
-				start_time = 0;
-			else
-				start_time = timestamp[start];
-					
-			if (i % 2) {
-				assert(start < 0 || !hardblock[start]);
-				assert(hardblock[end]);
-				hard_diffs[i/2] = timestamp[end] - start_time;
-				printf("Hard chunk %i: %llu\n",
-				       i/2, hard_diffs[i/2]);
-				hard_tot += hard_diffs[i/2];
-				hard_blocks += CHUNK_SIZE;
-			} else {
-				assert(start < 0 || hardblock[start]);
-				assert(!hardblock[end]);
-				easy_diffs[i/2] = timestamp[end] - start_time;
-				printf("Easy chunk %i: %llu\n",
-				       i/2, easy_diffs[i/2]);
-				easy_tot += easy_diffs[i/2];
-				easy_blocks += CHUNK_SIZE;
-			}
-		}
-
-		/* Sort to get median. */
-		asort(hard_diffs, num_hard, cmp_val, NULL);
-		asort(easy_diffs, num_easy, cmp_val, NULL);
-		
-		printf("%u easy chunks, average easy duration %lli, median %lli\n",
-		       num_easy, easy_tot / easy_blocks, easy_diffs[num_easy/2]);
-		printf("%u hard chunks, average hard duration %lli, median %lli\n",
-		       num_hard, hard_tot / hard_blocks, hard_diffs[num_hard/2]);
+		/* Update targets. */
+		old_target = old_target * timediff / IDEAL_FORTNIGHT;
+		new_target = new_target * timediff / IDEAL_FORTNIGHT;
 	}
 	return 0;
 }
