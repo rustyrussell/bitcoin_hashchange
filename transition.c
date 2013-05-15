@@ -75,12 +75,13 @@ int main(int argc, char *argv[])
 		if (i == 0)
 			new_t = -1UL;
 		else
-			new_t = new_target * fortnights / i;
+			new_t = (uint64_t)new_target * fortnights / i;
 
 		if (i == fortnights)
 			old_t = -1UL;
 		else
-			old_t = old_target * fortnights / (fortnights - i);
+			old_t = (uint64_t)old_target * fortnights
+				/ (fortnights - i);
 
 		for (r = 0; r < BLOCKS_PER_FORTNIGHT; r++) {
 			uint32_t res;
