@@ -1,0 +1,540 @@
+#LyX 2.0 created this file. For more info see http://www.lyx.org/
+\lyxformat 413
+\begin_document
+\begin_header
+\textclass article
+\use_default_options true
+\maintain_unincluded_children false
+\language english
+\language_package default
+\inputencoding auto
+\fontencoding global
+\font_roman default
+\font_sans default
+\font_typewriter default
+\font_default_family default
+\use_non_tex_fonts false
+\font_sc false
+\font_osf false
+\font_sf_scale 100
+\font_tt_scale 100
+
+\graphics default
+\default_output_format default
+\output_sync 0
+\bibtex_command default
+\index_command default
+\paperfontsize default
+\use_hyperref false
+\papersize default
+\use_geometry false
+\use_amsmath 1
+\use_esint 1
+\use_mhchem 1
+\use_mathdots 1
+\cite_engine basic
+\use_bibtopic false
+\use_indices false
+\paperorientation portrait
+\suppress_date false
+\use_refstyle 1
+\index Index
+\shortcut idx
+\color #008000
+\end_index
+\secnumdepth 3
+\tocdepth 3
+\paragraph_separation indent
+\paragraph_indentation default
+\quotes_language english
+\papercolumns 1
+\papersides 1
+\paperpagestyle default
+\tracking_changes false
+\output_changes false
+\html_math_output 0
+\html_css_as_file 0
+\html_be_strict false
+\end_header
+
+\begin_body
+
+\begin_layout Title
+A Graceful Hash Transition For The Bitcoin Protocol (WIP)
+\end_layout
+
+\begin_layout Author
+Rusty Russell <rusty@rustcorp.com.au>
+\end_layout
+
+\begin_layout Date
+May 2013
+\end_layout
+
+\begin_layout Abstract
+The Bitcoin protocol currently uses SHA-256 and RIPEMD-160 as its workhorse
+ hashing protocols, in particular using SHA-256 for generating proofs-of-work[1
+ Satoshi].
+ Though SHA-256 is widely endorsed and has no known weaknesses[2], this
+ may change over time.
+ This paper proposes a gradual method for transitioning away from SHA-256
+ in the active Bitcoin network, assuming that the vast majority of miners
+ and users are willing to upgrade.
+ This reduces the problem of deciding the initial difficulty of the new
+ hashing algorithm, and avoids the economic disruption which a sudden transition
+ away from SHA-256 would cause.
+ It is also the only clearly compelling reason to making incompatible changes
+ to the bitcoin protocol[3 - https://en.bitcoin.it/wiki/Hardfork_Wishlist],
+ so serves as a useful vehicle for considering hard forks.
+\end_layout
+
+\begin_layout Section
+Background
+\end_layout
+
+\begin_layout Standard
+[SHA for mining, double-SHA for merkle hashes, SHA for bitcoin addresses
+ [https://en.bitcoin.it/wiki/Technical_background_of_Bitcoin_addresses]
+\end_layout
+
+\begin_layout Standard
+Mining difficulty, timestamps, difficulty adjustment.
+ every 2016 blocks.
+\end_layout
+
+\begin_layout Standard
+Satoshi on hash transition: [https://bitcointalk.org/index.php?topic=360.msg3520#ms
+g3520]
+\end_layout
+
+\begin_layout Section
+Likely Timeline of SHA256
+\end_layout
+
+\begin_layout Standard
+Theoretical weakening: impractical.
+\end_layout
+
+\begin_layout Standard
+Practical weakening: seen in wild, or published
+\end_layout
+
+\begin_layout Standard
+Duplicate hashes can be created.
+\end_layout
+
+\begin_layout Standard
+Duplicate hashes can be created for any hashed value.
+\end_layout
+
+\begin_layout Standard
+Massive weakening
+\end_layout
+
+\begin_layout Standard
+Broken
+\end_layout
+
+\begin_layout Section
+Replacing SHA-256 in merkle hashes
+\end_layout
+
+\begin_layout Standard
+FIXME: Trivial cutover for new blocks.
+\end_layout
+
+\begin_layout Section
+Replacing SHA-256 in Bitcoin Addresses
+\end_layout
+
+\begin_layout Standard
+New prefix 
+\begin_inset Quotes eld
+\end_inset
+
+2
+\begin_inset Quotes erd
+\end_inset
+
+? How to handle old bitcoins?
+\end_layout
+
+\begin_layout Section
+Replacing SHA-256 in Proof of Work
+\end_layout
+
+\begin_layout Standard
+FIXME: Discussion of ASICS, investment, and thus why sudden transition will
+ be resisted until it's too late, and why a return to CPU mining is likely
+ to result in a less secure network (botnets et al).
+\end_layout
+
+\begin_layout Standard
+This paper proposes a gradual transition over a number of difficulty changes
+ (each one nominally 2 weeks long).
+ For simplicity the examples and graphs use 26 transitions (ie.
+ 1 year), but this is fairly arbitrary (see 
+\begin_inset CommandInset ref
+LatexCommand ref
+reference "sub:Transition-Period"
+
+\end_inset
+
+).
+\end_layout
+
+\begin_layout Standard
+The amount time spent on the new hashes changes over 
+\begin_inset Formula $S$
+\end_inset
+
+ difficulty changes: the old hash is solved as before, but that forms the
+ basis for a new hash (with a new nonce) which must also be solved.
+ Both new and old hash have separate difficulties, balanced such that the
+ time spent on the new hash is 
+\begin_inset Formula $\frac{1}{S}$
+\end_inset
+
+ at first, 
+\begin_inset Formula $\frac{2}{S}$
+\end_inset
+
+ next difficulty change, and so after 
+\begin_inset Formula $S$
+\end_inset
+
+ difficulty changes the new hash is used entirely and the transition is
+ complete.
+\end_layout
+
+\begin_layout Standard
+Unfortunately this scheme, while simple, has a problem: we cannot isolate
+ the time taken on the old and new hashes separately.
+ These can be expected to vary over the transition period due to both technical
+ and other factors:
+\end_layout
+
+\begin_layout Enumerate
+As the value of old hashing equipment drops, it may not be replaced if it
+ breaks.
+\end_layout
+
+\begin_layout Enumerate
+At some point the electricity cost of old hashing will make it unprofitable;
+ this may happen simultaneously for several large miners.
+\end_layout
+
+\begin_layout Enumerate
+Previous experience has shown that ASIC delivery is rarely on time, so predictin
+g the increase in new hashing power is fraught,
+\end_layout
+
+\begin_layout Enumerate
+The SHA2 algorithm may be significantly weakened during the transition,
+ making old mining much easier.
+\end_layout
+
+\begin_layout Standard
+In addition, estimating the initial new hash difficulty is problematic.
+ Satoshi based the bitcoin initial difficulty on his own hashing rate, but
+ we can be certain that more than one miner will exist in this transition.
+ Problems include:
+\end_layout
+
+\begin_layout Enumerate
+This initial hash rate estimate must be agreed by all, so it's best if it's
+ not too critical (eg.
+ can be selected by the lead developer without friction).
+\end_layout
+
+\begin_layout Enumerate
+Miners may not disclose their new hashing capability to gain competitive
+ advantage.
+\end_layout
+
+\begin_layout Enumerate
+A new hash (eg.
+ SHA3) may see rapid speedups due to intense development brought by using
+ it for bitcoin mining.
+\end_layout
+
+\begin_layout Enumerate
+There must be a delay between setting the initial hash rate and the start
+ of the transition.
+ During this time, any estimate could become obsolete.
+\end_layout
+
+\begin_layout Enumerate
+Miners with a vested interest in the status quo may actively sabotage the
+ new hash difficulty selection.
+\end_layout
+
+\begin_layout Subsection
+Alternate Difficulty Adjustment Solution
+\end_layout
+
+\begin_layout Standard
+The proposed solution is simple, yet provides robustness against various
+ scenarios.
+ On odd difficulty adjustments (ie.
+ 1st, 3rd, etc) we adjust the difficulty of both hashes the same way as
+ done now: if blocks arrived 10% too rapidly, both new and old hashing is
+ made 10% more difficult:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula $NewHashTarget_{N+1}=NewHashTarget_{N}\frac{Duration_{N}}{1209600}$
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula $OldHashTarget_{N+1}=OldHashTarget_{N}\frac{Duration_{N}}{1209600}$
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+(Note that the difficulty adjustments are always clamped to a factor of
+ 4, as in the current protocol).
+\end_layout
+
+\begin_layout Standard
+On even adjustments, we don't adjust the old hash target at all:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula $OldHashTarget_{N+1}=OldHashTarget_{N}$
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Instead, we assume the old hash took exactly the right fraction of two weeks:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula $OldTime_{N}=1209600\frac{S-N}{S}$
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Hence the remainder of the duration is assumed to be taken up by the new
+ hash:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula $NewTime_{N}=Duration_{N}-OldTime_{N}$
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+As the ideal duration for the new hash would be
+\begin_inset Formula $\frac{N}{S}$
+\end_inset
+
+of two weeks, we correct the new hash target by this ratio:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula $NewHashTarget_{N+1}=NewHashTarget_{N}\frac{NewTime_{N}S}{1299600N}$
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Again, this is clamped to within a factor of 4 of the last difficulty to
+ avoid dramatic changes.
+\end_layout
+
+\begin_layout Subsubsection
+Results In Different Scenarios
+\end_layout
+
+\begin_layout Standard
+A rough simulator was written, to explore different scenarios.
+ For simplicity (and ease of graphing), the new hash and old hashes are
+ assumed take the same amount of time, and transition occurs in 26 steps
+ (S=26).
+\end_layout
+
+\begin_layout Standard
+Firstly, if the initial calibration is correct, the time spent on the new
+ hash ramps up, and time on the old hash ramps down, as expected, with the
+ time spent on both staying constant:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Graphics
+	filename simple.svg
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+If the initial difficulty of the new hash is too easy by a factor of 100,
+ results are still reasonable, as the new hash ramps up to adjust.
+ At worst, blocks are being generated almost 20% too fast:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Graphics
+	filename too-easy-factor-100.svg
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+If the initial difficulty of the new hash is too hard by a factor of 100,
+ results are poor (460% too slow on the initial introduction), but still
+ recover quickly:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Graphics
+	filename too-hard-factor-100.svg
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+If the new hash difficulty is only too hard by a factor of 5, results are
+ more reasonable (15% too slow on initial introduction):
+\end_layout
+
+\begin_layout Standard
+\begin_inset Graphics
+	filename too-hard-factor-5.svg
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+To measure the case where SHA256 weakens during transition, we test the
+ most radical case (a complete break) by setting difficulty to zero halfway
+ through (N=13, S=26).
+ We immediate produce blocks 50% too fast (as expected), then overadjust
+ to produce them 95% too slowly, but then remain within 10% of the expected
+ rate:
+\end_layout
+
+\begin_layout Standard
+\begin_inset Graphics
+	filename simple-sha-fail-week-26.svg
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Finally, combining the 
+\begin_inset Quotes eld
+\end_inset
+
+100 times too easy
+\begin_inset Quotes erd
+\end_inset
+
+ case with the catasrophic break of SHA256 halfway through, we can see that
+ the new hash has not ramped up sufficiently at the half-way mark: it is
+ only 5% of the hashing power, so blocks are produced 2000% faster than
+ usual (every 30 seconds or so) and it takes two more difficulty changes
+ to correct.
+\end_layout
+
+\begin_layout Standard
+\begin_inset Graphics
+	filename too-easy-factor-100-sha-fail.svg
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+Effect of Dramatic Reduction in Hash Difficulty
+\end_layout
+
+\begin_layout Standard
+Let's assume an attacker secretly breaks SHA during the transition period,
+ such that they can now freely generate old-hash blocks.
+ To preform a 
+\begin_inset Quotes eld
+\end_inset
+
+51% attack
+\begin_inset Quotes erd
+\end_inset
+
+ they need to be able to solve the new hash faster than the rest of the
+ network can solve both hashes.
+ For example, once the new hash is taking over half the block generation
+ time, they need 1/3 of the network hashing power to double-spend at will.
+\end_layout
+
+\begin_layout Section
+Recommendations
+\end_layout
+
+\begin_layout Subsection
+Initial Hash Rate
+\end_layout
+
+\begin_layout Standard
+Assuming we want to remain within 20% of a 10-minute block time, the initial
+ difficulty setting should reflect between 1% and 500% of the real hash
+ rate.
+ It's better to be too low (eg.
+ 0.1% of the real hash rate, thus have blocks too fast) than too high (eg.
+ 5000% of the real hash rate, thus having blocks 3 times too slow).
+\end_layout
+
+\begin_layout Standard
+A higher initial hash rate provides more protection against SHA2 failing
+ (only if the network can maintain that hash rate though).
+\end_layout
+
+\begin_layout Standard
+A hashing competition prior (using real bitcoins as a reward) could be used
+ to establish the initial hash rate.
+\end_layout
+
+\begin_layout Subsection
+Transition Period
+\begin_inset CommandInset label
+LatexCommand label
+name "sub:Transition-Period"
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+I've used a 1-year transition period, but a period which matches the expected
+ hardware lifecycle of dedicated mining hardware (eg.
+ 3 years) might be more economically rational.
+ Obviously a slower transition means a longer exposure to any SHA2 weakening,
+ but it's more robust to start a long transition early than to delay and
+ have a faster transition.
+\end_layout
+
+\end_body
+\end_document
