@@ -1,5 +1,4 @@
 /* Simulate the effect of miners during transition. */
-#include <ccan/asort/asort.h>
 #include <ccan/isaac/isaac.h>
 #include <ccan/time/time.h>
 #include <ccan/str/str.h>
@@ -8,9 +7,10 @@
 #include <stdlib.h>
 #include <assert.h>
 
+/* How many 10-minute blocks in two weeks. */
 #define BLOCKS_PER_FORTNIGHT 2016
+/* How many seconds in two weeks. */
 #define IDEAL_FORTNIGHT (14 * 24 * 60 * 60)
-#define CHUNK_SIZE 63
 
 /* This gives approximately normal distribution noise. */
 static int32_t add_noise(struct isaac_ctx *isaac)
@@ -30,13 +30,16 @@ static int32_t add_noise(struct isaac_ctx *isaac)
 	return ret;
 }
 
+/* Aim for roughly 10 minute averages by default */
+#define DEFAULT_TARGET (0xFFFFFFFF / 600)
+
 int main(int argc, char *argv[])
 {
 	struct isaac_ctx isaac;
 	struct timespec ts = time_now();
-	unsigned int old_target = 8000000, new_target = 0xFFFFFFFF;
+	unsigned int old_target = DEFAULT_TARGET , new_target = DEFAULT_TARGET;
 	unsigned long seed;
-	unsigned int i, r, fortnights = 26, time;
+	unsigned int i, r, fortnights = 26, time, sha_fail = -1;
 	int32_t *timestamp;
 	bool noise = false, verbose = false;
 
@@ -56,6 +59,8 @@ int main(int argc, char *argv[])
 			 &verbose, "Verbose output");
 	opt_register_noarg("-h|--help", opt_usage_and_exit, "",
 			   "This usage message");
+	opt_register_arg("--sha-fail", opt_set_uintval, NULL, &sha_fail,
+			 "Fortnight at which to drop SHA difficulty to 0");
 
 	opt_parse(&argc, argv, opt_log_stderr_exit);
 	if (argc != 1)
@@ -67,21 +72,27 @@ int main(int argc, char *argv[])
 	if (verbose)
 		printf("  Seed is %lu, %u fortnights\n", seed, fortnights);
 
-	for (i = 0; i < fortnights + 1; i++) {
+	for (i = 0; i < fortnights + 10; i++) {
 		int64_t timediff;
-		uint32_t old_t, new_t;
+		uint32_t old_t, new_t, old_time = 0, new_time = 0;
 
 		/* New should represent i/fortnights work. */
 		if (i == 0)
-			new_t = -1UL;
+			new_t = -1U;
+		else if (i >= fortnights)
+			new_t = new_target;
 		else
 			new_t = (uint64_t)new_target * fortnights / i;
 
-		if (i == fortnights)
-			old_t = -1UL;
+		if (i >= fortnights)
+			old_t = -1U;
 		else
 			old_t = (uint64_t)old_target * fortnights
 				/ (fortnights - i);
+
+		/* Simulate SHA being completely cracked on this round. */
+		if (i >= sha_fail)
+			old_t = -1U;
 
 		for (r = 0; r < BLOCKS_PER_FORTNIGHT; r++) {
 			uint32_t res;
@@ -91,10 +102,8 @@ int main(int argc, char *argv[])
 			while ((res = isaac_next_uint32(&isaac)) > old_t)
 				duration++;
 
-			if (verbose)
-				printf("  Old hash finished in %u\n", duration);
-
 			time += duration;
+			old_time += duration;
 			if (noise) {
 				int32_t n = add_noise(&isaac);
 				if (verbose)
@@ -108,18 +117,43 @@ int main(int argc, char *argv[])
 			duration = 0;
 			while (isaac_next_uint32(&isaac) > new_t)
 				duration++;
-			if (verbose)
-				printf("  New hash finished in %u\n", duration);
+
 			time += duration;
+			new_time += duration;
 		}
 		timediff = timestamp[BLOCKS_PER_FORTNIGHT-1] - timestamp[0];
 
-		printf("Fortnight %i: %llu seconds average.\n",
-		       i, timediff / r);
+		if (verbose && i == 0)
+			printf("# Fortnight, time(oldhash), time(newhash)\n");
+		printf("%i, %i, %i\n", i, old_time, new_time);
 
-		/* Update targets. */
-		old_target = old_target * timediff / IDEAL_FORTNIGHT;
-		new_target = new_target * timediff / IDEAL_FORTNIGHT;
+		/* First round, we adjust both. */
+		if (i % 2 == 0 || i >= fortnights) {
+			/* Update targets for both hashes. */
+			old_target = (uint64_t)old_target * timediff / IDEAL_FORTNIGHT;
+			new_target = (uint64_t)new_target * timediff / IDEAL_FORTNIGHT;
+		} else {
+			/* Second round, we blame new hash entirely. */
+			int64_t old_time, new_time, desired_new_time;
+
+			/* Assume old hash is using correct amount. */
+			old_time = (uint64_t)IDEAL_FORTNIGHT * (fortnights - i)
+				/ fortnights;
+			/* Therefore new hash is responsible for the rest */
+			new_time = timediff - old_time;
+
+			/* This is the time we want. */
+			desired_new_time = IDEAL_FORTNIGHT - old_time;
+
+			/* Clamp to within a factor of 4 (can go
+			 * negative, but cancels out). */
+			if (desired_new_time > 4*new_time)
+				desired_new_time = 4*new_time;
+			else if (desired_new_time < new_time / 4)
+				desired_new_time = new_time / 4;
+
+			new_target = (int64_t)new_target * new_time / desired_new_time;
+		}
 	}
 	return 0;
 }
