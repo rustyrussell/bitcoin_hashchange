@@ -1,6 +1,5 @@
 /* Simulate the effect of miners during transition. */
 #include <ccan/isaac/isaac.h>
-#include <ccan/time/time.h>
 #include <ccan/str/str.h>
 #include <ccan/opt/opt.h>
 #include <stdio.h>
@@ -36,17 +35,14 @@ static int32_t add_noise(struct isaac_ctx *isaac)
 int main(int argc, char *argv[])
 {
 	struct isaac_ctx isaac;
-	struct timespec ts = time_now();
 	unsigned int old_target = DEFAULT_TARGET , new_target = DEFAULT_TARGET;
-	unsigned long seed;
+	unsigned long seed = 0;
 	unsigned int i, r, fortnights = 26, time, sha_fail = -1;
 	int32_t *timestamp;
 	bool noise = false, verbose = false;
 
-	seed = (ts.tv_sec << 10) + ts.tv_nsec;
-
-	opt_register_arg("--seed", opt_set_ulongval, NULL, &seed,
-			 "Seed value for rng (default based on time)");
+	opt_register_arg("--seed", opt_set_ulongval, opt_show_ulongval, &seed,
+			 "Seed value for rng");
 	opt_register_arg("--old-target", opt_set_uintval, opt_show_uintval,
 			 &old_target, "Target difficulty for old hash");
 	opt_register_arg("--new-target", opt_set_uintval, opt_show_uintval,
